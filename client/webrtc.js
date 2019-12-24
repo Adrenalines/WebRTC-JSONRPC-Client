@@ -1,27 +1,31 @@
-var localStream;
-var peerConnection;
-var uuid;
-var serverConnection;
+const wssConnectionUrl = 'ws://192.168.10.131:8800';
 
-var peerConnectionConfig = {
+const peerConnectionConfig = {
   // Эти сервера нужны браузеру для преодоления NAT,
   // через них он узнает свои внешние IP и порт,
   // а потом предложит нам в качестве кандидатов на передачу SRTP
-  'iceServers': [
-    {'urls': 'stun:stun.stunprotocol.org:3478'},
-    {'urls': 'stun:stun.l.google.com:19302'},
-  ]
+  iceServers: [
+    { urls: 'stun:stun.stunprotocol.org:3478' },
+    { urls: 'stun:stun.l.google.com:19302' },
+  ],
 };
+
+let localStream;
+let peerConnection;
+let uuid;
+let serverConnection;
+
+
 
 // стартуем здесь
 function pageReady() {
   uuid = createUUID();
 
   // Это подключение к нашему MFAPI серверу, но у нас там бегает MFAPI в виде JSON-RPC
-  serverConnection = new WebSocket('wss://' + window.location.hostname + ':8443');
+  serverConnection = new WebSocket(wssConnectionUrl);  // new WebSocket('wss://' + window.location.hostname + ':8443');
   serverConnection.onmessage = gotMessageFromServer;
 
-  var constraints = {
+  let constraints = {
     video: false, // отключил видео, т.к. если нет камеры пример не работает
     audio: true,
   };
@@ -40,6 +44,8 @@ function getUserMediaSuccess(stream) {
 }
 
 function start(isCaller) {
+  console.log(localStream);
+  
   peerConnection = new RTCPeerConnection(peerConnectionConfig); // конфигурация ICE серверов
   peerConnection.onicecandidate = gotIceCandidate; // ICE будет выдавать нам кандидатов для преодоления NAT
   peerConnection.ontrack = gotRemoteStream; // SDP offer/answer прошел
@@ -54,7 +60,7 @@ function start(isCaller) {
 function gotMessageFromServer(message) {
   if(!peerConnection) start(false);
 
-  var signal = JSON.parse(message.data);
+  let signal = JSON.parse(message.data);
 
   // Ignore messages from ourself
   if(signal.uuid == uuid) return;

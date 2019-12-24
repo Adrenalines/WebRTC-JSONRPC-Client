@@ -9,19 +9,6 @@ See [https://shanetully.com/2014/09/a-dead-simple-webrtc-example/](https://shane
 
 Note: This repo is kept updated. The general ideas are there, but the above blog post may be somewhat out of date with the code in this repo.
 
-## Usage
-
-The signaling server uses Node.js and `ws` and can be started as such:
-
-```
-$ npm install
-$ npm start
-```
-
-With the server running, open a recent version of Firefox, Chrome, or Safari and visit `https://localhost:8443`.
-
-* Note the HTTPS! There is no redirect from HTTP to HTTPS.
-* Some browsers or OSs may not allow the webcam to be used by multiple pages at once. You may need to use two different browsers or machines.
 
 ## TLS
 
