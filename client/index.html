@@ -1,16 +1,12 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
-    <script src="webrtc.js"></script>
+    <script defer src="simple-jsonrpc-js.js"></script>
+    <script defer src="webrtc.js"></script>
   </head>
 
   <body>
-
-    <input type="button" id="start" onclick="start(true)" value="Start Video"></input>
-
-    <script type="text/javascript">
-        pageReady();
-    </script>
+    <input type="button" id="start" onclick="start(true)" value="Call"></input>
+    <input type="button" id="start" onclick="start(true)" value="Answer"></input>   
   </body>
 </html>

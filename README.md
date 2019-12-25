@@ -1,14 +1,11 @@
 WebRTC Example
 ==============
 
-#### shane tully (shanetully.com)
+## Usage
 
-An 'as simple as it gets' WebRTC example.
-
-See [https://shanetully.com/2014/09/a-dead-simple-webrtc-example/](https://shanetully.com/2014/09/a-dead-simple-webrtc-example/) for a detailed walkthrough of the code.
-
-Note: This repo is kept updated. The general ideas are there, but the above blog post may be somewhat out of date with the code in this repo.
-
+```
+$ npm install
+```
 
 ## TLS
 

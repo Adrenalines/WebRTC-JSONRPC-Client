@@ -1,3 +1,4 @@
+const jrpc = new simple_jsonrpc();
 const wssConnectionUrl = 'ws://192.168.10.131:8800';
 
 const peerConnectionConfig = {
@@ -15,6 +16,7 @@ let peerConnection;
 let uuid;
 let serverConnection;
 
+document.addEventListener('DOMContentLoaded', pageReady);
 
 
 // стартуем здесь
@@ -22,16 +24,19 @@ function pageReady() {
   uuid = createUUID();
 
   // Это подключение к нашему MFAPI серверу, но у нас там бегает MFAPI в виде JSON-RPC
-  serverConnection = new WebSocket(wssConnectionUrl);  // new WebSocket('wss://' + window.location.hostname + ':8443');
-  serverConnection.onmessage = gotMessageFromServer;
+  serverConnection = new WebSocket(wssConnectionUrl);
 
   let constraints = {
     video: false, // отключил видео, т.к. если нет камеры пример не работает
     audio: true,
   };
 
+  serverConnection.onopen = function() {
+    jrpc.call('rtcPrepare');
+  }
+
   // В этот момент всплывает запрос на разрешение доступа к микрофону
-  if(navigator.mediaDevices.getUserMedia) {
+  if (navigator.mediaDevices.getUserMedia) {
     navigator.mediaDevices.getUserMedia(constraints).then(getUserMediaSuccess).catch(errorHandler);
   } else {
     alert('Your browser does not support getUserMedia API');
@@ -45,39 +50,39 @@ function getUserMediaSuccess(stream) {
 
 function start(isCaller) {
   console.log(localStream);
-  
+
   peerConnection = new RTCPeerConnection(peerConnectionConfig); // конфигурация ICE серверов
   peerConnection.onicecandidate = gotIceCandidate; // ICE будет выдавать нам кандидатов для преодоления NAT
   peerConnection.ontrack = gotRemoteStream; // SDP offer/answer прошел
   peerConnection.addStream(localStream); // наш источник звука
 
-  if(isCaller) {
+  if (isCaller) {
     // Т.к. мы звоним, нам нужно получить у браузера SDP
     peerConnection.createOffer().then(createdDescription).catch(errorHandler);
   }
 }
 
 function gotMessageFromServer(message) {
-  if(!peerConnection) start(false);
+  if (!peerConnection) start(false);
 
   let signal = JSON.parse(message.data);
 
   // Ignore messages from ourself
-  if(signal.uuid == uuid) return;
+  if (signal.uuid == uuid) return;
 
   // Тут мы получаем MFAPI:
   // - onRtcCallIncoming - при входящем в браузер вызове
   // - onRtcCallAnswer - при исходящем из браузера
   // В обоих случаях мы получили SDP от FreeSwitch и он уже содержит Ice-кандидатов
-  if(signal.sdp) {
+  if (signal.sdp) {
     // Устанавливаем SDP полученный от FreeSwitch
-    peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp)).then(function() {
+    peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp)).then(function () {
       // Only create answers in response to offers
-      if(signal.sdp.type == 'offer') { // Если мы получили MFAPI onRtcCallIncoming
+      if (signal.sdp.type == 'offer') { // Если мы получили MFAPI onRtcCallIncoming
         peerConnection.createAnswer().then(createdDescription).catch(errorHandler);
       }
     }).catch(errorHandler);
-  } else if(signal.ice) { // это условие удаляется
+  } else if (signal.ice) { // это условие удаляется
     // Здесь мы вычлиняем Ice-кандидатов из SDP от FreeSwitch и добавляем их
     peerConnection.addIceCandidate(new RTCIceCandidate(signal.ice)).catch(errorHandler);
   }
@@ -89,8 +94,8 @@ function gotMessageFromServer(message) {
 // , например:
 // a=candidate:0 1 UDP 2122252543 192.168.10.131 39005 typ host
 function gotIceCandidate(event) {
-  if(event.candidate != null) {
-    serverConnection.send(JSON.stringify({'ice': event.candidate, 'uuid': uuid}));
+  if (event.candidate != null) {
+    serverConnection.send(JSON.stringify({ 'ice': event.candidate, 'uuid': uuid }));
   }
 }
 
@@ -99,12 +104,12 @@ function createdDescription(description) {
   console.log('got description');
 
   // Устанавливаем его себе
-  peerConnection.setLocalDescription(description).then(function() {
+  peerConnection.setLocalDescription(description).then(function () {
     // Теперь обогащаем локальный SDP кандидатами ICE полученными в gotIceCandidate
     // Далее, вместо этого вызова делаем вызов метода MFAPI:
     // - rtcCallMake(SDP) - если мы звоним
     // - rtcCallAnswer(SDP) - если нам звонят
-    serverConnection.send(JSON.stringify({'sdp': peerConnection.localDescription, 'uuid': uuid}));
+    serverConnection.send(JSON.stringify({ 'sdp': peerConnection.localDescription, 'uuid': uuid }));
   }).catch(errorHandler);
 }
 
