@@ -1,6 +1,7 @@
 const jrpc = new simple_jsonrpc();
 const wssConnectionUrl = 'ws://192.168.10.131:8800';
 
+
 const peerConnectionConfig = {
   // Эти сервера нужны браузеру для преодоления NAT,
   // через них он узнает свои внешние IP и порт,
@@ -24,16 +25,63 @@ function pageReady() {
   uuid = createUUID();
 
   // Это подключение к нашему MFAPI серверу, но у нас там бегает MFAPI в виде JSON-RPC
-  serverConnection = new WebSocket(wssConnectionUrl);
+  serverConnection = new WebSocket(wssConnectionUrl, []);
+    
 
   let constraints = {
     video: false, // отключил видео, т.к. если нет камеры пример не работает
     audio: true,
   };
+  
+  // Отправляем сообщение на сервер
+  jrpc.toStream = function(_msg) {
+    console.log('Message sended: ', _msg);
+    serverConnection.send(_msg);
+  };
 
+  // Вызываем rtcPrepare после открытия соединения
   serverConnection.onopen = function() {
     jrpc.call('rtcPrepare');
   }
+  
+  // Показываем ошибку, если соединение не было установлено
+  serverConnection.onerror = function(error) {
+    console.error('Connection error: ' + error.message);
+  };
+
+  // Показываем сообщение, которое вернул сервер
+  serverConnection.onmessage = function(event) {
+    console.log('Server answer: ', event.data);
+    const answer = JSON.parse(event.data);
+    if (answer.result && answer.result.message === 'call created') {
+      
+    }
+  };
+
+  // Показываем сообщение в случае, если соединение было закрыто
+  serverConnection.onclose = function(event) {
+    if (event.wasClean) {
+      console.info('Connection close was clean');
+    } else {
+      console.error('Connection suddenly close');
+    }
+    console.info('close code : ' + event.code + ' reason: ' + event.reason); 
+  };
+
+  // Слушаем событие onRtcCallAnswer
+  jrpc.on('onRtcCallAnswer', answer => {
+    console.log('Answered, SDP V: ', answer);
+  });
+
+  // Слушаем событие onCallIncoming
+  jrpc.on('onCallIncoming', event => {
+    console.log('Call incoming: ', event);
+    // Если пришло событие onCallIncoming, то вызываем callAnswer
+    // "description": [ "Уникальный идентификатор звонковой сессии.", "Возвращается из события onCallIncoming или метода callMake.
+    // После совершения вызова все операции над ним производятся с указанием этого идентификатора"]
+    jrpc.call('callAnswer', { description: answer.id.toString(), examples: uuid }); 
+  });
+
 
   // В этот момент всплывает запрос на разрешение доступа к микрофону
   if (navigator.mediaDevices.getUserMedia) {
@@ -55,11 +103,27 @@ function start(isCaller) {
   peerConnection.onicecandidate = gotIceCandidate; // ICE будет выдавать нам кандидатов для преодоления NAT
   peerConnection.ontrack = gotRemoteStream; // SDP offer/answer прошел
   peerConnection.addStream(localStream); // наш источник звука
+  
 
   if (isCaller) {
     // Т.к. мы звоним, нам нужно получить у браузера SDP
-    peerConnection.createOffer().then(createdDescription).catch(errorHandler);
+    peerConnection
+      .createOffer()
+      .then(createdDescription)
+      .catch(errorHandler);
   }
+}
+
+// Мы получили наш локальный SDP
+function createdDescription(description) {
+  // Устанавливаем его себе
+  peerConnection.setLocalDescription(description).then(function () {
+    // Теперь обогащаем локальный SDP кандидатами ICE полученными в gotIceCandidate
+    // Далее, вместо этого вызова делаем вызов метода MFAPI:
+    // - rtcCallMake(SDP) - если мы звоним
+    // - rtcCallAnswer(SDP) - если нам звонят
+    jrpc.call('rtcCallMake', { 'sdp': peerConnection.localDescription.sdp });    
+  });
 }
 
 function gotMessageFromServer(message) {
@@ -99,19 +163,7 @@ function gotIceCandidate(event) {
   }
 }
 
-// Мы получили наш локальный SDP
-function createdDescription(description) {
-  console.log('got description');
 
-  // Устанавливаем его себе
-  peerConnection.setLocalDescription(description).then(function () {
-    // Теперь обогащаем локальный SDP кандидатами ICE полученными в gotIceCandidate
-    // Далее, вместо этого вызова делаем вызов метода MFAPI:
-    // - rtcCallMake(SDP) - если мы звоним
-    // - rtcCallAnswer(SDP) - если нам звонят
-    serverConnection.send(JSON.stringify({ 'sdp': peerConnection.localDescription, 'uuid': uuid }));
-  }).catch(errorHandler);
-}
 
 function gotRemoteStream(event) {
   console.log('got remote stream');
