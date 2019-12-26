@@ -1,12 +1,6 @@
 WebRTC Example
 ==============
 
-## Usage
-
-```
-$ npm install
-```
-
 ## TLS
 
 Recent versions of Chrome require secure websockets for WebRTC. Thus, this example utilizes HTTPS. Included is a self-signed certificate that must be accepted in the browser for the example to work.
