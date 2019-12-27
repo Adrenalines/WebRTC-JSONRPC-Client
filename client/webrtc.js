@@ -18,9 +18,7 @@ let ice = '';
 document.addEventListener('DOMContentLoaded', pageReady);
 
 // стартуем здесь
-function pageReady() {
-  ice = '';
-  
+function pageReady() {  
   let constraints = {
     video: false, // отключил видео, т.к. если нет камеры пример не работает
     audio: true,
@@ -99,6 +97,7 @@ function createdDescription(description) {
 // , например:
 // a=candidate:0 1 UDP 2122252543 192.168.10.131 39005 typ host
 function gotIceCandidate(event) {  
+  // Ожидаем последнего кандидата
   if (event.target.iceGatheringState === 'complete') {
     // Меняем статус на готов
     document.getElementById('init').innerHTML = 'Готов';
@@ -106,12 +105,7 @@ function gotIceCandidate(event) {
     document.getElementById('call').disabled = false;
     document.getElementById('answer').disabled = false;
     // Регистрируемся (rtcPrepare)
-    register();     
-    console.log('Ice candidates: ', ice);
-  }
-  if (event.candidate != null) {
-    // Формируем ice candidated
-    ice = `${ice}a=${event.candidate.candidate}\r\n`;
+    register();
   }
 }
 
@@ -127,11 +121,11 @@ function call(isCaller) {
   // - rtcCallAnswer(SDP) - если нам звонят    
   if (isCaller) {
     jrpc.call('rtcCallMake', {
-      sdp: `${peerConnection.localDescription.sdp}\r\n${ice}`
+      sdp: peerConnection.localDescription.sdp
     });
   } else {
     jrpc.call('rtcCallAnswer', {
-      sdp: `${peerConnection.localDescription.sdp}\r\n${ice}`
+      sdp: peerConnection.localDescription.sdp
     });
   } 
 }
@@ -181,38 +175,11 @@ function handleSDP(signal) {
   // - onRtcCallIncoming - при входящем в браузер вызове
   // - onRtcCallAnswer - при исходящем из браузера
   // В обоих случаях мы получили SDP от FreeSwitch и он уже содержит Ice-кандидатов
-  if (signal.sdp) {    
-    const sdpStrings = signal.sdp.split('\r\n');
-    const withoutCandidates = [];
-    const candidates = [];
-    
-    // Парсим без Ice-кандидатов
-    withoutCandidates = sdpStrings.filter(
-      item =>
-        !item.includes('a=end-of-candidates') &&
-        !item.includes('a=candidate') &&
-        item !== ''
-    );
-    
-    // Парсим Ice-кандидатов из SDP от FreeSwitch
-    candidates = sdpStrings.filter(item => item.includes('a=candidate'));
-    candidates = candidates.map(candidate => candidate.slice(2));
-
-    const withoutCandidatesString = withoutCandidates.join('\r\n');
-
-    console.log(withoutCandidatesString);
-    console.log(candidatesString);
-
-    // Устанавливаем SDP полученный от FreeSwitch
-    peerConnection.setRemoteDescription(new RTCSessionDescription(withoutCandidatesString))
-    .then(() => {
-      // Only create answers in response to offers
-      peerConnection.createAnswer().then(createdDescription).catch(errorHandler);
-      // Добавляем Ice-кандидатов из SDP от FreeSwitch
-      candidates.forEach(candidate => {
-        peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(errorHandler);
-      });
-    }).catch(errorHandler);
+  if (signal.sdp) { 
+    peerConnection
+      .setRemoteDescription(
+        new RTCSessionDescription({ sdp: signal.sdp, type: 'offer' })
+      ).catch(errorHandler);
   }  
 }
 
