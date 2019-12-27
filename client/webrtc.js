@@ -1,7 +1,5 @@
 const jrpc = new simple_jsonrpc();
 const wssConnectionUrl = 'ws://192.168.10.131:8800';
-
-
 const peerConnectionConfig = {
   // Эти сервера нужны браузеру для преодоления NAT,
   // через них он узнает свои внешние IP и порт,
@@ -14,37 +12,61 @@ const peerConnectionConfig = {
 
 let localStream;
 let peerConnection;
-let uuid;
 let serverConnection;
 let ice = '';
 
 document.addEventListener('DOMContentLoaded', pageReady);
 
-
 // стартуем здесь
 function pageReady() {
   ice = '';
-  uuid = createUUID();
+  
   let constraints = {
     video: false, // отключил видео, т.к. если нет камеры пример не работает
     audio: true,
   };
 
   // Это подключение к нашему MFAPI серверу, но у нас там бегает MFAPI в виде JSON-RPC
-  serverConnection = new WebSocket(wssConnectionUrl); 
+  serverConnection = new WebSocket(wssConnectionUrl);
 
-  // В этот момент всплывает запрос на разрешение доступа к микрофону
-  if (navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices
-      .getUserMedia(constraints)
-      .then(stream => {
-        getUserMediaSuccess(stream);
-        startPeerConnection();
-      })
-      .catch(errorHandler);
-  } else {
-    alert('Your browser does not support getUserMedia API');
-  }
+  // Отправляем сообщение на сервер
+  jrpc.toStream = function(msg) {
+    console.log('Message sended: ', JSON.parse(msg));
+    serverConnection.send(msg);
+  };
+
+  serverConnection.onopen = function() {
+    // В этот момент всплывает запрос на разрешение доступа к микрофону
+    if (navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices
+        .getUserMedia(constraints)
+        .then(stream => {
+          getUserMediaSuccess(stream);
+          startPeerConnection();
+        })
+        .catch(errorHandler);
+    } else {
+      alert('Your browser does not support getUserMedia API');
+    }
+  };
+
+  // Показываем ошибку, если соединение не было установлено
+  serverConnection.onerror = function(error) {
+    console.error('Connection error: ' + error.message);
+  };
+
+  // Показываем сообщение, которое прислал сервер
+  serverConnection.onmessage = gotMessageFromServer;
+
+  // Показываем сообщение в случае, если соединение было закрыто
+  serverConnection.onclose = function(event) {
+    if (event.wasClean) {
+      console.info('Connection close was clean');
+    } else {
+      console.error('Connection suddenly close');
+    }
+    console.info('close code : ' + event.code + ' reason: ' + event.reason);
+  };   
 }
 
 // Разрешение получили
@@ -83,45 +105,19 @@ function gotIceCandidate(event) {
     // Включаем кнопки
     document.getElementById('call').disabled = false;
     document.getElementById('answer').disabled = false;
-    // Запускаем jrpc
-    start();     
+    // Регистрируемся (rtcPrepare)
+    register();     
     console.log('Ice candidates: ', ice);
   }
   if (event.candidate != null) {
     // Формируем ice candidated
-    ice = ice + event.candidate.candidate + '\n';
+    ice = `${ice}a=${event.candidate.candidate}\r\n`;
   }
 }
 
-function start() {
-  // Отправляем сообщение на сервер
-  jrpc.toStream = function(msg) {
-    console.log('Message sended: ', JSON.parse(msg));
-    serverConnection.send(msg);
-  };
-
+function register() {
   // Вызываем rtcPrepare после открытия соединения
-  serverConnection.onopen = function() {
-    jrpc.call('rtcPrepare');
-  };
-
-  // Показываем ошибку, если соединение не было установлено
-  serverConnection.onerror = function(error) {
-    console.error('Connection error: ' + error.message);
-  };
-
-  // Показываем сообщение, которое прислал сервер
-  serverConnection.onmessage = gotMessageFromServer;
-
-  // Показываем сообщение в случае, если соединение было закрыто
-  serverConnection.onclose = function(event) {
-    if (event.wasClean) {
-      console.info('Connection close was clean');
-    } else {
-      console.error('Connection suddenly close');
-    }
-    console.info('close code : ' + event.code + ' reason: ' + event.reason);
-  };   
+  jrpc.call('rtcPrepare');  
 }
 
 function call(isCaller) {
@@ -131,54 +127,53 @@ function call(isCaller) {
   // - rtcCallAnswer(SDP) - если нам звонят    
   if (isCaller) {
     jrpc.call('rtcCallMake', {
-      sdp: peerConnection.localDescription.sdp,
-      ice: `a=${ice}`
+      sdp: `${peerConnection.localDescription.sdp}\r\n${ice}`
     });
   } else {
     jrpc.call('rtcCallAnswer', {
-      sdp: peerConnection.localDescription.sdp,
-      ice: `a=${ice}`,
+      sdp: `${peerConnection.localDescription.sdp}\r\n${ice}`
     });
   } 
 }
 
-function gotMessageFromServer(message) {
-  const signal = JSON.parse(message.data);
-  console.log('Server answer: ', signal);
-  // Ignore messages from ourself
-  if (signal.uuid == uuid) return;
-
-  // Слушаем событие onCallIncoming
-  jrpc.on('onCallIncoming', event => {
+function gotMessageFromServer(message) {  
+    // Слушаем событие onCallIncoming
+  jrpc.on('onCallIncoming', 'pass', event => {
     console.log('Call incoming: ', event);
     // Если пришло событие onCallIncoming, то вызываем callAnswer
     // "description": [ "Уникальный идентификатор звонковой сессии.", "Возвращается из события onCallIncoming или метода callMake.
     // После совершения вызова все операции над ним производятся с указанием этого идентификатора"]
     jrpc.call('callAnswer', {
-      call_session: event.params.call_session.toString()
-    });    
+      call_session: event.params.call_session.toString(),
+    });
   });
 
   // Слушаем событие onRtcCallAnswer
-  jrpc.on('onRtcCallAnswer', event => {
+  jrpc.on('onRtcCallAnswer', 'pass', event => {
     console.log('Answered, SDP V: ', event);
-    handleSDP(event);   
+    handleSDP(event);
   });  
 
   // Слушаем событие onRtcCallIncoming
-  jrpc.on('onRtcCallIncoming', event => {
+  jrpc.on('onRtcCallIncoming', 'pass', event => {
     console.log('Incoming call, SDP V: ', event);
     // Если пришло событие onRtcCallIncoming, то вызываем rtcCallAnswer
     document.getElementById('answer').addEventListener('click', () => {
       call(false);
       handleSDP(event);
-    });          
-  });
+    });
+  });  
 
   // Слушаем событие onCallAnswer
-  jrpc.on('onCallAnswer', event => {
-    console.log('Answered: ', event);      
+  jrpc.on('onCallAnswer', 'pass', event => {
+    console.log('Answered: ', event);
   });
+
+  jrpc.messageHandler(message.data); // Этот метод должен обязательно вызываться для обработки входящих событий
+  const signal = JSON.parse(message.data);
+  console.log('Server answer: ', signal);  
+
+
 }
 
 function handleSDP(signal) {
@@ -186,33 +181,45 @@ function handleSDP(signal) {
   // - onRtcCallIncoming - при входящем в браузер вызове
   // - onRtcCallAnswer - при исходящем из браузера
   // В обоих случаях мы получили SDP от FreeSwitch и он уже содержит Ice-кандидатов
-  if (signal.sdp) {
+  if (signal.sdp) {    
+    const sdpStrings = signal.sdp.split('\r\n');
+    const withoutCandidates = [];
+    const candidates = [];
+    
+    // Парсим без Ice-кандидатов
+    withoutCandidates = sdpStrings.filter(
+      item =>
+        !item.includes('a=end-of-candidates') &&
+        !item.includes('a=candidate') &&
+        item !== ''
+    );
+    
+    // Парсим Ice-кандидатов из SDP от FreeSwitch
+    candidates = sdpStrings.filter(item => item.includes('a=candidate'));
+    candidates = candidates.map(candidate => candidate.slice(2));
+
+    const withoutCandidatesString = withoutCandidates.join('\r\n');
+
+    console.log(withoutCandidatesString);
+    console.log(candidatesString);
+
     // Устанавливаем SDP полученный от FreeSwitch
-    peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp)).then(function () {
+    peerConnection.setRemoteDescription(new RTCSessionDescription(withoutCandidatesString))
+    .then(() => {
       // Only create answers in response to offers
-      if (signal.sdp.type == 'offer') { // Если мы получили MFAPI onRtcCallIncoming
-        peerConnection.createAnswer().then(createdDescription).catch(errorHandler);
-      }
+      peerConnection.createAnswer().then(createdDescription).catch(errorHandler);
+      // Добавляем Ice-кандидатов из SDP от FreeSwitch
+      candidates.forEach(candidate => {
+        peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(errorHandler);
+      });
     }).catch(errorHandler);
-  }
-  // Здесь мы вычленяем Ice-кандидатов из SDP от FreeSwitch и добавляем их
-  peerConnection.addIceCandidate(new RTCIceCandidate(signal.ice)).catch(errorHandler);
+  }  
 }
 
 function gotRemoteStream(event) {
-  console.log('got remote stream');
+  console.log('got remote stream: ', event);
 }
 
 function errorHandler(error) {
   console.log(error);
-}
-
-// Taken from http://stackoverflow.com/a/105074/515584
-// Strictly speaking, it's not a real UUID, but it gets the job done here
-function createUUID() {
-  function s4() {
-    return Math.floor((1 + Math.random()) * 0x10000).toString(16).substring(1);
-  }
-
-  return s4() + s4() + '-' + s4() + '-' + s4() + '-' + s4() + '-' + s4() + s4() + s4();
 }
