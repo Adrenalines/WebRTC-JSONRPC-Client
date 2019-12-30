@@ -10,6 +10,8 @@ const peerConnectionConfig = {
   ],
 };
 
+let localAudio;
+let remoteAudio;
 let localStream;
 let peerConnection;
 let serverConnection;
@@ -18,11 +20,14 @@ let ice = '';
 document.addEventListener('DOMContentLoaded', pageReady);
 
 // стартуем здесь
-function pageReady() {  
+function pageReady() {
   let constraints = {
     video: false, // отключил видео, т.к. если нет камеры пример не работает
     audio: true,
   };
+
+  localAudio = document.getElementById('localAudio');
+  remoteAudio = document.getElementById('remoteAudio');
 
   // Это подключение к нашему MFAPI серверу, но у нас там бегает MFAPI в виде JSON-RPC
   serverConnection = new WebSocket(wssConnectionUrl);
@@ -70,13 +75,15 @@ function pageReady() {
 // Разрешение получили
 function getUserMediaSuccess(stream) {
   localStream = stream;
+  localAudio.srcObject = stream;
 }
 
 function startPeerConnection() {
   peerConnection = new RTCPeerConnection(peerConnectionConfig); // конфигурация ICE серверов
   peerConnection.onicecandidate = gotIceCandidate;  // ICE будет выдавать нам кандидатов для преодоления NAT  
-  peerConnection.ontrack = gotRemoteStream; // SDP offer/answer прошел
+  peerConnection.ontrack = gotRemoteStream; // SDP offer/answer прошел  
   peerConnection.addStream(localStream); // наш источник звука
+  
 
   // Получаем у браузера SDP
   peerConnection
@@ -185,6 +192,7 @@ function handleSDP(signal) {
 
 function gotRemoteStream(event) {
   console.log('got remote stream: ', event);
+  remoteAudio.srcObject = event.streams[0];
 }
 
 function errorHandler(error) {
