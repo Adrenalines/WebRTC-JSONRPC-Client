@@ -5,8 +5,8 @@ const peerConnectionConfig = {
   // через них он узнает свои внешние IP и порт,
   // а потом предложит нам в качестве кандидатов на передачу SRTP
   iceServers: [
-    { urls: 'stun:stun.stunprotocol.org:3478' },
-    { urls: 'stun:stun.l.google.com:19302' },
+   // { urls: 'stun:stun.stunprotocol.org:3478' },
+   // { urls: 'stun:stun.l.google.com:19302' },
   ],
 };
 
@@ -81,7 +81,7 @@ function getUserMediaSuccess(stream) {
 function startPeerConnection() {
   peerConnection = new RTCPeerConnection(peerConnectionConfig); // конфигурация ICE серверов
   peerConnection.onicecandidate = gotIceCandidate;  // ICE будет выдавать нам кандидатов для преодоления NAT  
-  peerConnection.ontrack = gotRemoteStream; // SDP offer/answer прошел  
+  peerConnection.ontrack = gotRemoteStream; // SDP offer/answer прошел
   peerConnection.addStream(localStream); // наш источник звука
   
 
@@ -172,9 +172,7 @@ function gotMessageFromServer(message) {
 
   jrpc.messageHandler(message.data); // Этот метод должен обязательно вызываться для обработки входящих событий
   const signal = JSON.parse(message.data);
-  console.log('Server answer: ', signal);  
-
-
+  console.log('Server answer: ', signal); 
 }
 
 function handleSDP(signal) {
@@ -182,17 +180,62 @@ function handleSDP(signal) {
   // - onRtcCallIncoming - при входящем в браузер вызове
   // - onRtcCallAnswer - при исходящем из браузера
   // В обоих случаях мы получили SDP от FreeSwitch и он уже содержит Ice-кандидатов
-  if (signal.sdp) { 
+  
+  if (signal.sdp) {
+    const sdpStrings = signal.sdp.split('\r\n');
+    let withoutCandidates = [];
+    let candidates = [];
+
+    // Парсим без Ice-кандидатов
+    withoutCandidates = sdpStrings.filter(
+      item =>
+        !item.includes('a=end-of-candidates') &&
+        !item.includes('a=candidate') &&
+        item !== ''
+    );
+
+    // Парсим Ice-кандидатов из SDP от FreeSwitch
+    candidates = sdpStrings.filter(item => item.includes('a=candidate'));
+    candidates = candidates.map(candidate => candidate.slice(2));
+
+    let withoutCandidatesString = withoutCandidates.join('\r\n');
+
+    console.log(withoutCandidatesString);
+    console.log(candidates);
+    
     peerConnection
       .setRemoteDescription(
-        new RTCSessionDescription({ sdp: signal.sdp, type: 'offer' })
-      ).catch(errorHandler);
+        new RTCSessionDescription({
+          sdp: withoutCandidatesString,
+          type: 'answer',
+        })
+      )
+      .then(function() {
+        candidates.forEach(candidate => {
+          peerConnection
+            .addIceCandidate(new RTCIceCandidate({ sdpMid: '', sdpMLineIndex: '', candidate: candidate }))
+            .catch(errorHandler);
+        });
+        // Only create answers in response to offers
+        if (signal.sdp.type === 'offer') {
+          peerConnection
+            .createAnswer()
+            .then(a => {
+              createdDescription(a);              
+            })
+            .catch(errorHandler);
+        }
+      })
+      .catch(errorHandler);
   }  
 }
 
 function gotRemoteStream(event) {
   console.log('got remote stream: ', event);
   remoteAudio.srcObject = event.streams[0];
+  event.streams[0]
+    .getTracks()
+    .forEach(track => peerConnection.addTrack(track, localStream)); 
 }
 
 function errorHandler(error) {
