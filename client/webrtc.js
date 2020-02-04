@@ -1,34 +1,43 @@
 const jrpc = new simple_jsonrpc();
-const wssConnectionUrl = 'ws://192.168.10.131:8800';
 const peerConnectionConfig = {
   // Эти сервера нужны браузеру для преодоления NAT,
   // через них он узнает свои внешние IP и порт,
   // а потом предложит нам в качестве кандидатов на передачу SRTP
   iceServers: [
-   // { urls: 'stun:stun.stunprotocol.org:3478' },
-   // { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.stunprotocol.org:3478' },
+    { urls: 'stun:stun.l.google.com:19302' },
   ],
 };
 
+let constraints;
 let localAudio;
 let remoteAudio;
 let localStream;
 let peerConnection;
 let serverConnection;
 let ice = '';
+// Достаём url из localStorage
+document.getElementById('url').value = localStorage.getItem('url') || '';
 
 document.addEventListener('DOMContentLoaded', pageReady);
 
 // стартуем здесь
 function pageReady() {
-  let constraints = {
+  constraints = {
     video: false, // отключил видео, т.к. если нет камеры пример не работает
     audio: true,
   };
 
   localAudio = document.getElementById('localAudio');
   remoteAudio = document.getElementById('remoteAudio');
+  // Меняем статус на Ready
+  document.getElementById('ready').innerHTML = 'Ready';
+}
 
+function connect() {
+  let wssConnectionUrl = document.getElementById('url').value;
+  // Кладём url в localStorage
+  localStorage.setItem('url', wssConnectionUrl);
   // Это подключение к нашему MFAPI серверу, но у нас там бегает MFAPI в виде JSON-RPC
   serverConnection = new WebSocket(wssConnectionUrl);
 
@@ -46,17 +55,18 @@ function pageReady() {
         .then(stream => {
           getUserMediaSuccess(stream);
           startPeerConnection();
+          document.getElementById('connect').disabled = true;
+          document.getElementById('disconnect').disabled = false;
         })
         .catch(errorHandler);
     } else {
-      alert('Your browser does not support getUserMedia API');
+      alert('Connection failed. Your browser does not support getUserMedia API');
+      document.getElementById('status').innerHTML = 'Error: Your browser does not support getUserMedia API';
     }
   };
 
   // Показываем ошибку, если соединение не было установлено
-  serverConnection.onerror = function(error) {
-    console.error('Connection error: ' + error.message);
-  };
+  serverConnection.onerror = errorHandler;
 
   // Показываем сообщение, которое прислал сервер
   serverConnection.onmessage = gotMessageFromServer;
@@ -65,11 +75,15 @@ function pageReady() {
   serverConnection.onclose = function(event) {
     if (event.wasClean) {
       console.info('Connection close was clean');
+      document.getElementById('status').innerHTML = 'Connection close was clean';
     } else {
       console.error('Connection suddenly close');
+      document.getElementById('status').innerHTML = 'Connection suddenly close';
     }
-    console.info('close code : ' + event.code + ' reason: ' + event.reason);
-  };   
+    console.info('close code: ' + event.code + ', reason: ' + event.reason);
+    document.getElementById('status').innerHTML += ', close code: ' + event.code + ', reason: ' + event.reason;
+    disconnect();
+  };
 }
 
 // Разрешение получили
@@ -82,8 +96,7 @@ function startPeerConnection() {
   peerConnection = new RTCPeerConnection(peerConnectionConfig); // конфигурация ICE серверов
   peerConnection.onicecandidate = gotIceCandidate;  // ICE будет выдавать нам кандидатов для преодоления NAT  
   peerConnection.ontrack = gotRemoteStream; // SDP offer/answer прошел
-  peerConnection.addStream(localStream); // наш источник звука
-  
+  peerConnection.addStream(localStream); // наш источник звука  
 
   // Получаем у браузера SDP
   peerConnection
@@ -104,13 +117,9 @@ function createdDescription(description) {
 // , например:
 // a=candidate:0 1 UDP 2122252543 192.168.10.131 39005 typ host
 function gotIceCandidate(event) {  
+  document.getElementById('status').innerHTML = 'Getting ice candidates...';
   // Ожидаем последнего кандидата
-  if (event.target.iceGatheringState === 'complete') {
-    // Меняем статус на готов
-    document.getElementById('init').innerHTML = 'Готов';
-    // Включаем кнопки
-    document.getElementById('call').disabled = false;
-    document.getElementById('answer').disabled = false;
+  if (event.target.iceGatheringState === 'complete') {    
     // Регистрируемся (rtcPrepare)
     register();
   }
@@ -118,7 +127,13 @@ function gotIceCandidate(event) {
 
 function register() {
   // Вызываем rtcPrepare после открытия соединения
-  jrpc.call('rtcPrepare');  
+  jrpc.call('rtcPrepare');
+  // Меняем статус на Connection established
+  document.getElementById('status').innerHTML = 'Connection established';
+  // Включаем кнопки
+  document.getElementById('call').disabled = false;
+  document.getElementById('callMakeText').disabled = false;
+  document.getElementById('callMake').disabled = false;
 }
 
 function call(isCaller) {
@@ -137,42 +152,83 @@ function call(isCaller) {
   } 
 }
 
+function callMake() {
+  // Вызываем callMake с параметром rtc_address, взятым из пользовательского input  
+  jrpc.call('callMake', {
+    rtc_address: document.getElementById('callMakeText').value
+  });
+}
+
 function gotMessageFromServer(message) {  
-    // Слушаем событие onCallIncoming
+  jrpc.messageHandler(message.data); // Этот метод должен обязательно вызываться для обработки входящих событий
+  const signal = JSON.parse(message.data);
+  console.log('Server answer: ', signal);
+
+  // Обработка ответа и вывод в поле status
+  const result = signal.result ? signal.result : signal.error ? signal.error : '';
+  document.getElementById('status').innerHTML = result ? result.message : document.getElementById('status').innerHTML;
+  
+  if (signal.result && signal.result.message === 'call created') {
+    document.getElementById('callCreated').checked = true;
+  }
+
+  // Обработка jrpc ответов
+  handleMessageFromServer();
+}
+
+function handleMessageFromServer() {
+  let callSessionConnect = '';
+  let callSessionIncoming = '';
+  // Слушаем событие onCallIncoming
   jrpc.on('onCallIncoming', 'pass', event => {
     console.log('Call incoming: ', event);
+    callSessionConnect = event.params.call_session.toString();
+    document.getElementById('onCallIncoming').checked = true;
     // Если пришло событие onCallIncoming, то вызываем callAnswer
     // "description": [ "Уникальный идентификатор звонковой сессии.", "Возвращается из события onCallIncoming или метода callMake.
     // После совершения вызова все операции над ним производятся с указанием этого идентификатора"]
     jrpc.call('callAnswer', {
-      call_session: event.params.call_session.toString(),
-    });
+      call_session: callSessionConnect,
+    });    
+    document.getElementById('callAnswer').checked = true;    
   });
-
+  
   // Слушаем событие onRtcCallAnswer
   jrpc.on('onRtcCallAnswer', 'pass', event => {
     console.log('Answered, SDP V: ', event);
+    document.getElementById('onRtcCallAnswer').checked = true;
     handleSDP(event);
-  });  
+    // Вызываем метод callTonePlay
+    jrpc.call('callTonePlay', {
+      call_session: callSessionConnect,
+      tone_id: '425'
+    });
+    document.getElementById('callTonePlayConnect').checked = true;
+  });
 
   // Слушаем событие onRtcCallIncoming
   jrpc.on('onRtcCallIncoming', 'pass', event => {
     console.log('Incoming call, SDP V: ', event);
+    callSessionIncoming = event.params.call_session.toString();
+    document.getElementById('onRtcCallIncoming').checked = true;
     // Если пришло событие onRtcCallIncoming, то вызываем rtcCallAnswer
-    document.getElementById('answer').addEventListener('click', () => {
-      call(false);
-      handleSDP(event);
-    });
+    call(false);
+    document.getElementById('rtcCallAnswer').checked = true;
+    handleSDP(event);
   });  
 
   // Слушаем событие onCallAnswer
   jrpc.on('onCallAnswer', 'pass', event => {
     console.log('Answered: ', event);
-  });
+    document.getElementById('onCallAnswer').checked = true;
 
-  jrpc.messageHandler(message.data); // Этот метод должен обязательно вызываться для обработки входящих событий
-  const signal = JSON.parse(message.data);
-  console.log('Server answer: ', signal); 
+    // Вызываем метод callTonePlay
+    jrpc.call('callTonePlay', {
+      call_session: callSessionIncoming,
+      tone_id: '425'
+    });
+    document.getElementById('callTonePlayIncoming').checked = true;
+  });
 }
 
 function handleSDP(signal) {
@@ -240,4 +296,22 @@ function gotRemoteStream(event) {
 
 function errorHandler(error) {
   console.log(error);
+  document.getElementById('status').innerHTML = 'Connection error' + (error.message !== undefined ? ': ' + error.message : '');
+}
+
+function disconnect() {
+  serverConnection.close();
+  document.getElementById('connect').disabled = false;
+  document.getElementById('disconnect').disabled = true;
+
+  document.getElementById('call').disabled = true;
+  document.getElementById('callMake').disabled = true;
+  document.getElementById('onCallIncoming').checked = false;
+  document.getElementById('callAnswer').checked = false;
+  document.getElementById('onRtcCallAnswer').checked = false;
+  document.getElementById('callTonePlayConnect').checked = false;
+  document.getElementById('onRtcCallIncoming').checked = false;
+  document.getElementById('rtcCallAnswer').checked = false;
+  document.getElementById('onCallAnswer').checked = false;
+  document.getElementById('callTonePlayIncoming').checked = false;
 }

@@ -6,9 +6,65 @@
   </head>
 
   <body>
-    <p id="init">Инициализация...</p>
-    <input type="button" id="call" onclick="call(true)" value="Call" disabled></input>
-    <input type="button" id="answer" value="Answer" disabled></input>  
+
+    <strong><p id="ready">Waiting...</p></strong>
+    <label for="url">Websocket URL:</label>
+    <input type="text" id="url" placeholder="ws://...">
+    <button id="connect" onclick="connect()">Connect</button>
+    <button id="disconnect" onclick="disconnect()" disabled>Disconnect</button>
+    <strong><p id="status">...</p></strong>
+    <hr />
+    <p><strong>Connect browser RTC to the platform</strong></p>
+    <div style="padding: 5px;">
+      1. <button id="call" onclick="call(true)" autocomplete="off" disabled>rtcCallMake(SDP B)</button>
+    </div>    
+    <div style="display: flex; flex-direction: column;">
+      <div style="display: flex; padding: 5px;">
+        <div style="width: 200px">2. call created</div>
+        <input type="checkbox" id="callCreated" autocomplete="off" disabled>
+      </div>
+      <div style="display: flex; padding: 5px;">
+        <div style="width: 200px">3. onCallIncoming</div>
+        <input type="checkbox" id="onCallIncoming" autocomplete="off" disabled>
+      </div>
+      <div style="display: flex; padding: 5px;">
+        <div style="width: 200px">4. callAnswer</div>
+        <input type="checkbox" id="callAnswer" autocomplete="off" disabled>
+      </div>
+      <div style="display: flex; padding: 5px;">
+        <div style="width: 200px">5. onRtcCallAnswer(SDP V)</div>
+        <input type="checkbox" id="onRtcCallAnswer" autocomplete="off" disabled>
+      </div>
+      <div style="display: flex; padding: 5px;">
+        <div style="width: 200px">6. callTonePlay</div>
+        <input type="checkbox" id="callTonePlayConnect" autocomplete="off" disabled>
+      </div>
+    </div>
+    
+    <hr />
+    <p><strong>Incoming RTC connection from the platform</strong></p>
+    <div style="padding: 5px;">
+      1. <input type="text" id="callMakeText" placeholder="msisdn_subs@msisdn_dev" disabled>
+      <button id="callMake" onclick="callMake()" autocomplete="off" disabled>callMake</button>
+    </div>    
+    <div style="display: flex; flex-direction: column;">
+      <div style="display: flex; padding: 5px;">
+        <div style="width: 200px">2. onRtcCallIncoming(SDP V)</div>
+        <input type="checkbox" id="onRtcCallIncoming" autocomplete="off" disabled>
+      </div>
+      <div style="display: flex; padding: 5px;">
+        <div style="width: 200px">3. rtcCallAnswer(SDP B)</div>
+        <input type="checkbox" id="rtcCallAnswer" autocomplete="off" disabled>
+      </div>
+      <div style="display: flex; padding: 5px;">
+        <div style="width: 200px">4. onCallAnswer</div>
+        <input type="checkbox" id="onCallAnswer" autocomplete="off" disabled>
+      </div>
+      <div style="display: flex; padding: 5px;">
+        <div style="width: 200px">5. callTonePlay</div>
+        <input type="checkbox" id="callTonePlayIncoming" autocomplete="off" disabled>
+      </div>
+    </div>
     <audio id="localAudio" autoplay muted></audio>
     <audio id="remoteAudio" autoplay></audio>
   </body>
