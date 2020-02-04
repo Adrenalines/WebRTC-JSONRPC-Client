@@ -197,7 +197,7 @@ function handleMessageFromServer() {
   jrpc.on('onRtcCallAnswer', 'pass', event => {
     console.log('Answered, SDP V: ', event);
     document.getElementById('onRtcCallAnswer').checked = true;
-    handleSDP(event);
+    handleSDP(event, 'answer'); // передаём sdp и статус answer
     // Вызываем метод callTonePlay
     jrpc.call('callTonePlay', {
       call_session: callSessionConnect,
@@ -214,7 +214,7 @@ function handleMessageFromServer() {
     // Если пришло событие onRtcCallIncoming, то вызываем rtcCallAnswer
     call(false);
     document.getElementById('rtcCallAnswer').checked = true;
-    handleSDP(event);
+    handleSDP(event, 'offer'); // передаём sdp и статус offer
   });  
 
   // Слушаем событие onCallAnswer
@@ -231,7 +231,7 @@ function handleMessageFromServer() {
   });
 }
 
-function handleSDP(signal) {
+function handleSDP(signal, status) {
   // Тут мы получаем MFAPI:
   // - onRtcCallIncoming - при входящем в браузер вызове
   // - onRtcCallAnswer - при исходящем из браузера
@@ -255,17 +255,12 @@ function handleSDP(signal) {
     candidates = candidates.map(candidate => candidate.slice(2));
 
     let withoutCandidatesString = withoutCandidates.join('\r\n');
-
-    console.log(withoutCandidatesString);
-    console.log(candidates);
-    
+    let rtcSessionDescription = new RTCSessionDescription({
+      sdp: withoutCandidatesString,
+      type: status, // ставим type в зависимости от статуса соответственно answer или offer
+    });
     peerConnection
-      .setRemoteDescription(
-        new RTCSessionDescription({
-          sdp: withoutCandidatesString,
-          type: 'answer',
-        })
-      )
+      .setRemoteDescription(rtcSessionDescription)
       .then(function() {
         candidates.forEach(candidate => {
           peerConnection
@@ -276,9 +271,7 @@ function handleSDP(signal) {
         if (signal.sdp.type === 'offer') {
           peerConnection
             .createAnswer()
-            .then(a => {
-              createdDescription(a);              
-            })
+            .then(createdDescription)
             .catch(errorHandler);
         }
       })
@@ -303,7 +296,7 @@ function disconnect() {
   serverConnection.close();
   document.getElementById('connect').disabled = false;
   document.getElementById('disconnect').disabled = true;
-
+  // Выключаем кнопки и чек-боксы
   document.getElementById('call').disabled = true;
   document.getElementById('callMake').disabled = true;
   document.getElementById('onCallIncoming').checked = false;
